@@ -109,6 +109,15 @@ install_dependencies() {
   npm install --production=false
 }
 
+build_frontend() {
+  cd "${INSTALL_DIR}/client"
+  echo "Installing frontend dependencies..."
+  npm install --production=false
+
+  echo "Building frontend into ${INSTALL_DIR}/public..."
+  npm run build
+}
+
 start_serverdock() {
   cd "${INSTALL_DIR}"
   echo "Starting ServerDock with pm2..."
@@ -143,6 +152,7 @@ install_pm2
 clone_repo
 generate_env
 install_dependencies
+build_frontend
 start_serverdock
 print_banner
 
