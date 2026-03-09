@@ -96,7 +96,16 @@ EOF
 
 install_dependencies() {
   cd "${INSTALL_DIR}"
-  echo "Installing ServerDock dependencies..."
+  echo "Installing system build tools required for native Node modules..."
+
+  # node-pty (and other native deps) need make/g++ and friends
+  if ! command -v make >/dev/null 2>&1; then
+    echo "Installing build-essential (make, g++ and related tools)..."
+    apt-get update -y
+    apt-get install -y build-essential
+  fi
+
+  echo "Installing ServerDock npm dependencies..."
   npm install --production=false
 }
 
