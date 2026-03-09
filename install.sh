@@ -70,7 +70,6 @@ clone_repo() {
 generate_env() {
   cd "${INSTALL_DIR}"
 
-  # Treat empty or obviously incomplete .env as missing (handles interrupted runs)
   if [[ -f ".env" ]] && grep -q '^PORT=' .env && grep -q '^SECRET_TOKEN=' .env && grep -q '^JWT_SECRET=' .env; then
     echo ".env already exists with required keys, keeping existing configuration."
     return
@@ -78,17 +77,12 @@ generate_env() {
 
   echo "Generating .env file..."
 
-  # Generate random secrets in a way that is safe with 'set -euo pipefail'
-  # We temporarily relax error handling for the randomness pipelines to avoid
-  # SIGPIPE / pipefail aborting the whole installer.
-  set +e
-  set +o pipefail
-  SECRET_TOKEN=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
-  JWT_SECRET=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)
-  set -e
-  set -o pipefail
+  # openssl rand -hex generates an exact-length hex string with NO pipes — zero SIGPIPE risk
+  # 16 bytes hex = 32 chars, 24 bytes hex = 48 chars
+  SECRET_TOKEN=$(openssl rand -hex 16)
+  JWT_SECRET=$(openssl rand -hex 24)
 
-  # Fallbacks in case the above unexpectedly failed and produced empty values
+  # Fallbacks in case openssl is somehow unavailable
   if [[ -z "${SECRET_TOKEN}" ]]; then
     SECRET_TOKEN="serverdock_$(date +%s)_$RANDOM"
   fi
@@ -108,13 +102,14 @@ EOF
   mv "${TMP_ENV}" .env
 
   echo "${SECRET_TOKEN}" > .serverdock_token
+
+  echo ".env successfully created."
 }
 
 install_dependencies() {
   cd "${INSTALL_DIR}"
   echo "Installing system build tools required for native Node modules..."
 
-  # node-pty (and other native deps) need make/g++ and friends
   if ! command -v make >/dev/null 2>&1; then
     echo "Installing build-essential (make, g++ and related tools)..."
     apt-get update -y
