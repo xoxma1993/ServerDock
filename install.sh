@@ -99,6 +99,12 @@ SECRET_TOKEN=${SECRET_TOKEN}
 JWT_SECRET=${JWT_SECRET}
 EOF
 
+  # If user provided a public domain for ServerDock, persist it into .env
+  # so we can show nicer URLs in the banner (e.g. https://dp.w3lnet.com).
+  if [[ -n "${SERVERDOCK_DOMAIN:-}" ]]; then
+    echo "SERVERDOCK_DOMAIN=${SERVERDOCK_DOMAIN}" >> "${TMP_ENV}"
+  fi
+
   mv "${TMP_ENV}" .env
 
   echo "${SECRET_TOKEN}" > .serverdock_token
@@ -149,10 +155,13 @@ print_banner() {
     SERVER_IP="YOUR_SERVER_IP"
   fi
 
+   # Prefer a configured public domain if available, otherwise fall back to IP.
+   SERVER_HOST="${SERVERDOCK_DOMAIN:-${SERVER_IP}}"
+
   cat <<EOF
 ╔══════════════════════════════════════════════════════════╗
 ║  ServerDock is running!                                  ║
-║  Open: http://${SERVER_IP}:2580/?token=${SECRET_TOKEN_SHOWN}  ║
+║  Open: http://${SERVER_HOST}:2580/?token=${SECRET_TOKEN_SHOWN}  ║
 ║  (Token is embedded in the URL for first login)          ║
 ╚══════════════════════════════════════════════════════════╝
 EOF
