@@ -77,8 +77,24 @@ generate_env() {
   fi
 
   echo "Generating .env file..."
+
+  # Generate random secrets in a way that is safe with 'set -euo pipefail'
+  # We temporarily relax error handling for the randomness pipelines to avoid
+  # SIGPIPE / pipefail aborting the whole installer.
+  set +e
+  set +o pipefail
   SECRET_TOKEN=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
   JWT_SECRET=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)
+  set -e
+  set -o pipefail
+
+  # Fallbacks in case the above unexpectedly failed and produced empty values
+  if [[ -z "${SECRET_TOKEN}" ]]; then
+    SECRET_TOKEN="serverdock_$(date +%s)_$RANDOM"
+  fi
+  if [[ -z "${JWT_SECRET}" ]]; then
+    JWT_SECRET="serverdock_jwt_$(date +%s)_$RANDOM"
+  fi
 
   # Write atomically to avoid corrupted .env if the script is interrupted
   TMP_ENV=".env.tmp.$$"
