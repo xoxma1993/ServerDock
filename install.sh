@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${SERVERDOCK_REPO_URL:-https://github.com/USER/serverdock}"
+REPO_URL="${SERVERDOCK_REPO_URL:-https://github.com/xoxma1993/ServerDock.git}"
 INSTALL_DIR="/opt/serverdock"
 NODE_VERSION_MAJOR_REQUIRED=20
 
@@ -114,11 +114,11 @@ print_banner() {
   fi
 
   cat <<EOF
-╔══════════════════════════════════════════╗
-║  ServerDock is running!                  ║
-║  Open: http://${SERVER_IP}:2580           ║
-║  Token: ${SECRET_TOKEN_SHOWN}            ║
-╚══════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════╗
+║  ServerDock is running!                                  ║
+║  Open: http://${SERVER_IP}:2580/?token=${SECRET_TOKEN_SHOWN}  ║
+║  (Token is embedded in the URL for first login)          ║
+╚══════════════════════════════════════════════════════════╝
 EOF
 }
 
