@@ -135,6 +135,80 @@ build_frontend() {
   npm run build
 }
 
+setup_nginx_https_ip() {
+  # Optional: front ServerDock with Nginx + self‑signed HTTPS on the server IP,
+  # similar to how HestiaCP works without a domain.
+  # Enable by setting SERVERDOCK_ENABLE_HTTPS_IP=1 (default 0 to avoid conflicts).
+  if [[ "${SERVERDOCK_ENABLE_HTTPS_IP:-0}" != "1" ]]; then
+    echo "Skipping Nginx HTTPS/IP setup (set SERVERDOCK_ENABLE_HTTPS_IP=1 to enable)."
+    return
+  fi
+
+  echo "Setting up Nginx HTTPS reverse proxy on port 443 for ServerDock..."
+
+  apt-get update -y
+  apt-get install -y nginx openssl
+
+  SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [[ -z "${SERVER_IP}" ]]; then
+    SERVER_IP="127.0.0.1"
+  fi
+
+  CERT_PATH="/etc/ssl/certs/serverdock.crt"
+  KEY_PATH="/etc/ssl/private/serverdock.key"
+
+  if [[ ! -f "${CERT_PATH}" || ! -f "${KEY_PATH}" ]]; then
+    echo "Generating self-signed TLS certificate for IP ${SERVER_IP}..."
+    openssl req -x509 -nodes -days 365 \
+      -newkey rsa:2048 \
+      -keyout "${KEY_PATH}" \
+      -out "${CERT_PATH}" \
+      -subj "/CN=${SERVER_IP}" \
+      -addext "subjectAltName = IP:${SERVER_IP}"
+  else
+    echo "Existing TLS certificate found at ${CERT_PATH}, reusing."
+  fi
+
+  SITE_CONF="/etc/nginx/sites-available/serverdock"
+
+  cat > "${SITE_CONF}" <<EOF
+server {
+    listen 80;
+    server_name ${SERVER_IP};
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ${SERVER_IP};
+
+    ssl_certificate     ${CERT_PATH};
+    ssl_certificate_key ${KEY_PATH};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass http://127.0.0.1:2580;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+
+  ln -s "${SITE_CONF}" /etc/nginx/sites-enabled/serverdock 2>/dev/null || true
+  if [[ -f /etc/nginx/sites-enabled/default ]]; then
+    rm -f /etc/nginx/sites-enabled/default
+  fi
+
+  nginx -t
+  systemctl reload nginx
+
+  echo "Nginx HTTPS/IP frontend configured. You can now access ServerDock via:"
+  echo "  https://${SERVER_IP}/"
+}
+
 start_serverdock() {
   cd "${INSTALL_DIR}"
   echo "Starting ServerDock with pm2..."
@@ -158,10 +232,19 @@ print_banner() {
    # Prefer a configured public domain if available, otherwise fall back to IP.
    SERVER_HOST="${SERVERDOCK_DOMAIN:-${SERVER_IP}}"
 
+   # If we have an HTTPS/IP frontend via Nginx, show the HTTPS URL without port.
+   if [[ "${SERVERDOCK_ENABLE_HTTPS_IP:-0}" == "1" ]]; then
+     URL_SCHEME="https"
+     URL_PORT=""
+   else
+     URL_SCHEME="http"
+     URL_PORT=":2580"
+   fi
+
   cat <<EOF
 ╔══════════════════════════════════════════════════════════╗
 ║  ServerDock is running!                                  ║
-║  Open: http://${SERVER_HOST}:2580/?token=${SECRET_TOKEN_SHOWN}  ║
+║  Open: ${URL_SCHEME}://${SERVER_HOST}${URL_PORT}/?token=${SECRET_TOKEN_SHOWN}  ║
 ║  (Token is embedded in the URL for first login)          ║
 ╚══════════════════════════════════════════════════════════╝
 EOF
@@ -173,6 +256,7 @@ clone_repo
 generate_env
 install_dependencies
 build_frontend
+setup_nginx_https_ip
 start_serverdock
 print_banner
 
