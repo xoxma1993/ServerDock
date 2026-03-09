@@ -132,3 +132,4 @@ print_banner
 
 echo "Installation complete."
 
+echo "ServerDock is running! Open http://${SERVER_IP}:2580/?token=${SECRET_TOKEN_SHOWN} in your browser to access the panel."
