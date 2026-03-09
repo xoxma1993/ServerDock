@@ -69,8 +69,10 @@ clone_repo() {
 
 generate_env() {
   cd "${INSTALL_DIR}"
-  if [[ -f ".env" ]]; then
-    echo ".env already exists, keeping existing configuration."
+
+  # Treat empty or obviously incomplete .env as missing (handles interrupted runs)
+  if [[ -f ".env" ]] && grep -q '^PORT=' .env && grep -q '^SECRET_TOKEN=' .env && grep -q '^JWT_SECRET=' .env; then
+    echo ".env already exists with required keys, keeping existing configuration."
     return
   fi
 
@@ -78,11 +80,16 @@ generate_env() {
   SECRET_TOKEN=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
   JWT_SECRET=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)
 
-  cat > .env <<EOF
+  # Write atomically to avoid corrupted .env if the script is interrupted
+  TMP_ENV=".env.tmp.$$"
+
+  cat > "${TMP_ENV}" <<EOF
 PORT=2580
 SECRET_TOKEN=${SECRET_TOKEN}
 JWT_SECRET=${JWT_SECRET}
 EOF
+
+  mv "${TMP_ENV}" .env
 
   echo "${SECRET_TOKEN}" > .serverdock_token
 }
@@ -131,5 +138,3 @@ start_serverdock
 print_banner
 
 echo "Installation complete."
-
-echo "ServerDock is running! Open http://${SERVER_IP}:2580/?token=${SECRET_TOKEN_SHOWN} in your browser to access the panel."
