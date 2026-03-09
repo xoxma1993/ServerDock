@@ -1,17 +1,24 @@
 require('dotenv').config();
 
 const path = require('path');
+const http = require('http');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const WebSocket = require('ws');
+const pty = require('node-pty');
 
 const authMiddleware = require('./src/api/middleware/auth');
 const createAuthRouter = require('./src/api/routes/auth');
 const systemRouter = require('./src/api/routes/system');
 const packagesRouter = require('./src/api/routes/packages');
+const nginxRouter = require('./src/api/routes/nginx');
+const pm2Router = require('./src/api/routes/pm2');
+const databaseRouter = require('./src/api/routes/database');
 
 const app = express();
+const server = http.createServer(app);
 
 // Basic configuration
 const PORT = process.env.PORT || 2580;
@@ -74,18 +81,9 @@ app.use('/api/auth', authRouter);
 // Protected routes
 app.use('/api/system', authMiddleware, systemRouter);
 app.use('/api/packages', authMiddleware, packagesRouter);
-
-app.use('/api/nginx', authMiddleware, (req, res) => {
-  res.status(501).json({ error: 'Nginx endpoint not implemented yet.' });
-});
-
-app.use('/api/pm2', authMiddleware, (req, res) => {
-  res.status(501).json({ error: 'PM2 endpoint not implemented yet.' });
-});
-
-app.use('/api/database', authMiddleware, (req, res) => {
-  res.status(501).json({ error: 'Database endpoint not implemented yet.' });
-});
+app.use('/api/nginx', nginxRouter);
+app.use('/api/pm2', pm2Router);
+app.use('/api/database', databaseRouter);
 
 // Serve frontend (Vite build) from /public when available
 const publicDir = path.join(__dirname, 'public');
@@ -101,8 +99,74 @@ app.get('*', (req, res, next) => {
   });
 });
 
+// WebSocket terminal: /ws/terminal?token=<JWT>
+const wss = new WebSocket.Server({ noServer: true });
+
+function verifyJwt(token, secret) {
+  try {
+    const jwt = require('jsonwebtoken');
+    return jwt.verify(token, secret);
+  } catch {
+    return null;
+  }
+}
+
+server.on('upgrade', (request, socket, head) => {
+  const { url } = request;
+  if (!url || !url.startsWith('/ws/terminal')) {
+    socket.destroy();
+    return;
+  }
+
+  const queryString = url.split('?')[1] || '';
+  const params = new URLSearchParams(queryString);
+  const token = params.get('token');
+  const payload = verifyJwt(token, JWT_SECRET);
+  if (!payload) {
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request, payload);
+  });
+});
+
+wss.on('connection', (ws) => {
+  const shell = '/bin/bash';
+  const ptyProcess = pty.spawn(shell, [], {
+    name: 'xterm-color',
+    cols: 80,
+    rows: 24,
+    cwd: process.env.HOME || '/root',
+    env: process.env
+  });
+
+  ptyProcess.onData((data) => {
+    ws.send(data);
+  });
+
+  ws.on('message', (msg) => {
+    const text = msg.toString();
+    try {
+      const maybeJson = JSON.parse(text);
+      if (maybeJson && maybeJson.type === 'resize' && maybeJson.cols && maybeJson.rows) {
+        ptyProcess.resize(maybeJson.cols, maybeJson.rows);
+        return;
+      }
+    } catch {
+      // not JSON, fall through
+    }
+    ptyProcess.write(text);
+  });
+
+  ws.on('close', () => {
+    ptyProcess.kill();
+  });
+});
+
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`[ServerDock] Server listening on port ${PORT}`);
 });
 
