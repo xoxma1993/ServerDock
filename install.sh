@@ -260,4 +260,4 @@ setup_nginx_https_ip
 start_serverdock
 print_banner
 
-echo "Installation complete."
+echo "Installation complete."   
