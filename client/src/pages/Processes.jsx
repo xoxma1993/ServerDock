@@ -2,12 +2,14 @@ import React, { useEffect, useState } from 'react';
 import api from '../api/client';
 import toast from 'react-hot-toast';
 import LiveLog from '../components/LiveLog.jsx';
+import { useAuthStore } from '../store';
 
 export default function Processes() {
   const [processes, setProcesses] = useState([]);
   const [logLines, setLogLines] = useState([]);
   const [logOpen, setLogOpen] = useState(false);
   const [logTitle, setLogTitle] = useState('');
+  const token = useAuthStore((s) => s.token);
 
   const fetchProcesses = async () => {
     try {
@@ -35,10 +37,16 @@ export default function Processes() {
   };
 
   const openLogs = (name) => {
+    if (!token) {
+      toast.error('You must be logged in to view logs');
+      return;
+    }
+
     setLogTitle(`Logs: ${name}`);
     setLogLines([]);
     setLogOpen(true);
-    const es = new EventSource(`/api/pm2/processes/${name}/logs/stream`);
+    const url = `/api/pm2/processes/${name}/logs/stream?token=${encodeURIComponent(token)}`;
+    const es = new EventSource(url);
     es.onmessage = (e) => {
       if (!e.data) return;
       try {

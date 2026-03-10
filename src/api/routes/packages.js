@@ -345,8 +345,46 @@ router.post('/install', (req, res) => {
   });
 });
 
+// GET variant for SSE clients (EventSource cannot send a body)
+router.get('/install', (req, res) => {
+  const { id } = req.query || {};
+  const pkg = findPackage(id);
+
+  setupSSE(res);
+
+  if (!pkg) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Unknown package id' })}\n\n`);
+    return res.end();
+  }
+
+  runCommandSSE({
+    cmd: pkg.installCmd,
+    args: pkg.installArgs,
+    res
+  });
+});
+
 router.post('/remove', (req, res) => {
   const { id } = req.body || {};
+  const pkg = findPackage(id);
+
+  setupSSE(res);
+
+  if (!pkg) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Unknown package id' })}\n\n`);
+    return res.end();
+  }
+
+  runCommandSSE({
+    cmd: pkg.removeCmd,
+    args: pkg.removeArgs,
+    res
+  });
+});
+
+// GET variant for SSE clients (EventSource cannot send a body)
+router.get('/remove', (req, res) => {
+  const { id } = req.query || {};
   const pkg = findPackage(id);
 
   setupSSE(res);

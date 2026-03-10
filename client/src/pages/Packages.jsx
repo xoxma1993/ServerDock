@@ -3,6 +3,7 @@ import api from '../api/client';
 import toast from 'react-hot-toast';
 import InstallCard from '../components/InstallCard.jsx';
 import LiveLog from '../components/LiveLog.jsx';
+import { useAuthStore } from '../store';
 
 const CATEGORIES = [
   { id: 'runtimes', label: 'Runtimes' },
@@ -18,6 +19,7 @@ export default function Packages() {
   const [logLines, setLogLines] = useState([]);
   const [logOpen, setLogOpen] = useState(false);
   const [actionLabel, setActionLabel] = useState('');
+  const token = useAuthStore((s) => s.token);
 
   const fetchStatus = async () => {
     try {
@@ -39,12 +41,21 @@ export default function Packages() {
   );
 
   const handleAction = (id, action) => {
+    if (!token) {
+      toast.error('You must be logged in to manage packages');
+      return;
+    }
+
     setLogLines([]);
     setLogOpen(true);
     setActionLabel(`${action === 'install' ? 'Installing' : 'Removing'} ${id}...`);
 
-    const url = `/packages/${action}`;
-    const es = new EventSource(`${url}`, { withCredentials: true });
+    const qs = new URLSearchParams({
+      id,
+      token
+    }).toString();
+    const url = `/api/packages/${action}?${qs}`;
+    const es = new EventSource(url);
 
     es.onmessage = (e) => {
       if (!e.data) return;

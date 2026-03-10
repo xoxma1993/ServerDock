@@ -9,11 +9,18 @@ function authMiddleware(req, res, next) {
   }
 
   const authHeader = req.headers['authorization'] || req.headers['Authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring('Bearer '.length).trim();
+  } else if (req.query && typeof req.query.token === 'string' && req.query.token.trim() !== '') {
+    // Fallback for transports that cannot set headers easily (e.g. EventSource)
+    token = req.query.token.trim();
   }
 
-  const token = authHeader.substring('Bearer '.length).trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization token' });
+  }
 
   jwt.verify(token, JWT_SECRET, (err, payload) => {
     if (err) {
