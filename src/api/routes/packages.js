@@ -1,7 +1,9 @@
 const express = require('express');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
+const util = require('util');
 const { runCommandSSE } = require('../../services/executor');
 
+const execFileAsync = util.promisify(execFile);
 const router = express.Router();
 
 // Definition of installable packages
@@ -11,7 +13,8 @@ const PACKAGES = [
     id: 'nodejs_18',
     name: 'Node.js 18',
     category: 'runtimes',
-    checkCmd: 'node -v',
+    checkCmd: 'node',
+    checkArgs: ['-v'],
     versionRegex: /^v18\./,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'nodejs'],
@@ -22,7 +25,8 @@ const PACKAGES = [
     id: 'nodejs_20',
     name: 'Node.js 20',
     category: 'runtimes',
-    checkCmd: 'node -v',
+    checkCmd: 'node',
+    checkArgs: ['-v'],
     versionRegex: /^v20\./,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'nodejs'],
@@ -33,7 +37,8 @@ const PACKAGES = [
     id: 'nodejs_22',
     name: 'Node.js 22',
     category: 'runtimes',
-    checkCmd: 'node -v',
+    checkCmd: 'node',
+    checkArgs: ['-v'],
     versionRegex: /^v22\./,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'nodejs'],
@@ -44,7 +49,8 @@ const PACKAGES = [
     id: 'python3',
     name: 'Python 3',
     category: 'runtimes',
-    checkCmd: 'python3 --version',
+    checkCmd: 'python3',
+    checkArgs: ['--version'],
     versionRegex: /^Python 3\./,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'python3'],
@@ -55,7 +61,8 @@ const PACKAGES = [
     id: 'python3-pip',
     name: 'pip for Python 3',
     category: 'runtimes',
-    checkCmd: 'pip3 --version',
+    checkCmd: 'pip3',
+    checkArgs: ['--version'],
     versionRegex: /^pip /,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'python3-pip'],
@@ -66,7 +73,8 @@ const PACKAGES = [
     id: 'php83',
     name: 'PHP 8.3',
     category: 'runtimes',
-    checkCmd: 'php -v',
+    checkCmd: 'php',
+    checkArgs: ['-v'],
     versionRegex: /^PHP 8\.3\./,
     installCmd: 'apt-get',
     installArgs: [
@@ -87,7 +95,8 @@ const PACKAGES = [
     id: 'nginx',
     name: 'Nginx',
     category: 'web',
-    checkCmd: 'nginx -v',
+    checkCmd: 'nginx',
+    checkArgs: ['-v'],
     versionRegex: /nginx\/([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'nginx'],
@@ -98,7 +107,8 @@ const PACKAGES = [
     id: 'apache2',
     name: 'Apache 2',
     category: 'web',
-    checkCmd: 'apache2 -v',
+    checkCmd: 'apache2',
+    checkArgs: ['-v'],
     versionRegex: /Server version: Apache\/([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'apache2'],
@@ -110,7 +120,8 @@ const PACKAGES = [
     id: 'postgresql',
     name: 'PostgreSQL',
     category: 'databases',
-    checkCmd: 'psql --version',
+    checkCmd: 'psql',
+    checkArgs: ['--version'],
     versionRegex: /^psql \(PostgreSQL\) ([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'postgresql', 'postgresql-contrib'],
@@ -121,7 +132,8 @@ const PACKAGES = [
     id: 'mysql-server',
     name: 'MySQL Server',
     category: 'databases',
-    checkCmd: 'mysql --version',
+    checkCmd: 'mysql',
+    checkArgs: ['--version'],
     versionRegex: /^mysql\s+Ver\s+[\d.]+\s+/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'mysql-server'],
@@ -132,7 +144,8 @@ const PACKAGES = [
     id: 'redis-server',
     name: 'Redis Server',
     category: 'databases',
-    checkCmd: 'redis-server --version',
+    checkCmd: 'redis-server',
+    checkArgs: ['--version'],
     versionRegex: /^Redis server v=([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'redis-server'],
@@ -143,7 +156,8 @@ const PACKAGES = [
     id: 'mongodb',
     name: 'MongoDB',
     category: 'databases',
-    checkCmd: 'mongod --version',
+    checkCmd: 'mongod',
+    checkArgs: ['--version'],
     versionRegex: /^db version v([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'mongodb-org'],
@@ -155,7 +169,8 @@ const PACKAGES = [
     id: 'git',
     name: 'Git',
     category: 'tools',
-    checkCmd: 'git --version',
+    checkCmd: 'git',
+    checkArgs: ['--version'],
     versionRegex: /^git version ([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'git'],
@@ -166,7 +181,8 @@ const PACKAGES = [
     id: 'curl',
     name: 'curl',
     category: 'tools',
-    checkCmd: 'curl --version',
+    checkCmd: 'curl',
+    checkArgs: ['--version'],
     versionRegex: /^curl ([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'curl'],
@@ -177,7 +193,8 @@ const PACKAGES = [
     id: 'wget',
     name: 'wget',
     category: 'tools',
-    checkCmd: 'wget --version',
+    checkCmd: 'wget',
+    checkArgs: ['--version'],
     versionRegex: /^GNU Wget ([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'wget'],
@@ -188,7 +205,8 @@ const PACKAGES = [
     id: 'htop',
     name: 'htop',
     category: 'tools',
-    checkCmd: 'htop --version',
+    checkCmd: 'htop',
+    checkArgs: ['--version'],
     versionRegex: /^htop ([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'htop'],
@@ -199,7 +217,8 @@ const PACKAGES = [
     id: 'zip',
     name: 'zip',
     category: 'tools',
-    checkCmd: 'zip -v',
+    checkCmd: 'zip',
+    checkArgs: ['-v'],
     versionRegex: /^Zip ([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'zip'],
@@ -210,7 +229,8 @@ const PACKAGES = [
     id: 'unzip',
     name: 'unzip',
     category: 'tools',
-    checkCmd: 'unzip -v',
+    checkCmd: 'unzip',
+    checkArgs: ['-v'],
     versionRegex: /^UnZip ([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'unzip'],
@@ -221,7 +241,8 @@ const PACKAGES = [
     id: 'certbot',
     name: 'Certbot',
     category: 'tools',
-    checkCmd: 'certbot --version',
+    checkCmd: 'certbot',
+    checkArgs: ['--version'],
     versionRegex: /^certbot\s+([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'certbot', 'python3-certbot-nginx'],
@@ -232,7 +253,8 @@ const PACKAGES = [
     id: 'fail2ban',
     name: 'Fail2Ban',
     category: 'tools',
-    checkCmd: 'fail2ban-client --version',
+    checkCmd: 'fail2ban-client',
+    checkArgs: ['--version'],
     versionRegex: /^Fail2Ban v([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'fail2ban'],
@@ -243,7 +265,8 @@ const PACKAGES = [
     id: 'ufw',
     name: 'UFW Firewall',
     category: 'tools',
-    checkCmd: 'ufw status',
+    checkCmd: 'ufw',
+    checkArgs: ['status'],
     versionRegex: null,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'ufw'],
@@ -255,7 +278,8 @@ const PACKAGES = [
     id: 'pm2',
     name: 'PM2',
     category: 'process-managers',
-    checkCmd: 'pm2 -v',
+    checkCmd: 'pm2',
+    checkArgs: ['-v'],
     versionRegex: /^([\d.]+)/,
     installCmd: 'npm',
     installArgs: ['install', '-g', 'pm2'],
@@ -266,7 +290,8 @@ const PACKAGES = [
     id: 'supervisor',
     name: 'Supervisor',
     category: 'process-managers',
-    checkCmd: 'supervisord -v',
+    checkCmd: 'supervisord',
+    checkArgs: ['-v'],
     versionRegex: /^([\d.]+)/,
     installCmd: 'apt-get',
     installArgs: ['install', '-y', 'supervisor'],
@@ -279,44 +304,46 @@ function findPackage(id) {
   return PACKAGES.find((p) => p.id === id);
 }
 
-router.get('/status', (req, res) => {
-  const results = [];
-  let remaining = PACKAGES.length;
-
-  if (remaining === 0) {
+router.get('/status', async (req, res) => {
+  if (PACKAGES.length === 0) {
     return res.json([]);
   }
 
-  PACKAGES.forEach((pkg) => {
-    exec(pkg.checkCmd, (err, stdout, stderr) => {
-      let installed = false;
-      let version = null;
+  try {
+    const results = await Promise.all(
+      PACKAGES.map(async (pkg) => {
+        let installed = false;
+        let version = null;
 
-      if (!err) {
-        installed = true;
-        const out = `${stdout} ${stderr}`;
-        if (pkg.versionRegex) {
-          const match = out.match(pkg.versionRegex);
-          if (match) {
-            version = match[1] || match[0];
+        try {
+          const { stdout, stderr } = await execFileAsync(pkg.checkCmd, pkg.checkArgs || []);
+          installed = true;
+          const out = `${stdout} ${stderr}`;
+          if (pkg.versionRegex) {
+            const match = out.match(pkg.versionRegex);
+            if (match) {
+              version = match[1] || match[0];
+            }
           }
+        } catch {
+          installed = false;
         }
-      }
 
-      results.push({
-        id: pkg.id,
-        name: pkg.name,
-        category: pkg.category,
-        installed,
-        version
-      });
+        return {
+          id: pkg.id,
+          name: pkg.name,
+          category: pkg.category,
+          installed,
+          version
+        };
+      })
+    );
 
-      remaining -= 1;
-      if (remaining === 0) {
-        res.json(results);
-      }
-    });
-  });
+    res.json(results);
+  } catch (err) {
+    console.error('[ServerDock] Failed to check package statuses:', err);
+    res.status(500).json({ error: 'Failed to check package statuses' });
+  }
 });
 
 // SSE helpers

@@ -26,9 +26,9 @@ router.get('/domains', (req, res) => {
   }
 });
 
-router.post('/domains', (req, res) => {
+router.post('/domains', async (req, res) => {
   try {
-    const id = createOrUpdateDomain(req.body || {});
+    const id = await createOrUpdateDomain(req.body || {});
     res.json({ id });
   } catch (err) {
     console.error('[ServerDock] Failed to create nginx domain:', err);
@@ -36,10 +36,10 @@ router.post('/domains', (req, res) => {
   }
 });
 
-router.put('/domains/:id', (req, res) => {
+router.put('/domains/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    createOrUpdateDomain({ ...req.body, id });
+    await createOrUpdateDomain({ ...req.body, id });
     res.json({ id });
   } catch (err) {
     console.error('[ServerDock] Failed to update nginx domain:', err);
@@ -91,18 +91,18 @@ router.post('/domains/:id/ssl/letsencrypt', async (req, res) => {
   }
 });
 
-router.post('/test', (req, res) => {
+router.post('/test', async (req, res) => {
   try {
-    const output = testConfig();
+    const output = await testConfig();
     res.json({ success: true, output });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message || 'nginx -t failed' });
   }
 });
 
-router.post('/reload', (req, res) => {
+router.post('/reload', async (req, res) => {
   try {
-    const output = reloadNginx();
+    const output = await reloadNginx();
     res.json({ success: true, output });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message || 'reload failed' });

@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync, exec } = require('child_process');
+const { exec, execFile } = require('child_process');
+const util = require('util');
+
+const execFileAsync = util.promisify(execFile);
 
 const SITES_AVAILABLE = '/etc/nginx/sites-available';
 const SITES_ENABLED = '/etc/nginx/sites-enabled';
@@ -278,7 +281,7 @@ server {
   return server;
 }
 
-function writeConfigWithTest(id, configContent) {
+async function writeConfigWithTest(id, configContent) {
   const filename = `${id}.conf`;
   const fullPath = path.join(SITES_AVAILABLE, filename);
   const backupPath = fileExists(fullPath) ? `${fullPath}.bak-${Date.now()}` : null;
@@ -290,7 +293,7 @@ function writeConfigWithTest(id, configContent) {
   fs.writeFileSync(fullPath, configContent, 'utf8');
 
   try {
-    execSync('nginx -t', { stdio: 'ignore' });
+    await execFileAsync('nginx', ['-t']);
   } catch (err) {
     // rollback
     if (backupPath) {
@@ -298,7 +301,7 @@ function writeConfigWithTest(id, configContent) {
     } else {
       fs.unlinkSync(fullPath);
     }
-    throw new Error('nginx configuration test failed');
+    throw new Error('nginx configuration test failed: ' + (err.stderr || err.message));
   }
 
   if (backupPath) {
@@ -306,10 +309,10 @@ function writeConfigWithTest(id, configContent) {
   }
 }
 
-function createOrUpdateDomain(config) {
+async function createOrUpdateDomain(config) {
   const id = safeId(config.id || config.domain);
   const serverBlock = buildServerBlock({ ...config, id });
-  writeConfigWithTest(id, serverBlock);
+  await writeConfigWithTest(id, serverBlock);
   return id;
 }
 
@@ -349,16 +352,19 @@ function disableDomain(id) {
   }
 }
 
-function testConfig() {
-  return execSync('nginx -t', { encoding: 'utf8' });
+async function testConfig() {
+  const { stdout, stderr } = await execFileAsync('nginx', ['-t']);
+  return stdout || stderr;
 }
 
-function reloadNginx() {
-  return execSync('systemctl reload nginx', { encoding: 'utf8' });
+async function reloadNginx() {
+  const { stdout, stderr } = await execFileAsync('systemctl', ['reload', 'nginx']);
+  return stdout || stderr;
 }
 
 function runCertbotForDomain({ domain, email }) {
   return new Promise((resolve, reject) => {
+    // Using exec here as certbot args are complex and strictly generated locally
     const cmd = `certbot --nginx -d ${domain} --non-interactive --agree-tos -m ${email}`;
     exec(cmd, (err, stdout, stderr) => {
       if (err) {

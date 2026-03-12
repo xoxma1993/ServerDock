@@ -79,10 +79,10 @@ router.post('/processes/:name/start', async (req, res) => {
   }
 });
 
-router.get('/processes/:name/logs', (req, res) => {
+router.get('/processes/:name/logs', async (req, res) => {
   const lines = Number(req.query.lines || 100);
   try {
-    const logs = getLogs(req.params.name, lines);
+    const logs = await getLogs(req.params.name, lines);
     res.type('text/plain').send(logs);
   } catch (err) {
     console.error('[ServerDock] Failed to get pm2 logs:', err);

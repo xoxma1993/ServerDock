@@ -1,14 +1,14 @@
-const { exec, execSync, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
+const util = require('util');
+
+const execFileAsync = util.promisify(execFile);
 
 function listProcesses() {
-  return new Promise((resolve, reject) => {
-    exec('pm2 jlist', (err, stdout, stderr) => {
-      if (err) {
-        return reject(new Error(stderr || err.message));
-      }
+  return execFileAsync('pm2', ['jlist'])
+    .then(({ stdout }) => {
       try {
         const list = JSON.parse(stdout);
-        const mapped = list.map((p) => {
+        return list.map((p) => {
           const m = p.monit || {};
           const pm2Env = p.pm2_env || {};
           return {
@@ -21,23 +21,14 @@ function listProcesses() {
             restarts: pm2Env.restart_time
           };
         });
-        resolve(mapped);
       } catch (e) {
-        reject(e);
+        throw new Error('Failed to parse PM2 output');
       }
     });
-  });
 }
 
 function runPm2Command(args) {
-  return new Promise((resolve, reject) => {
-    exec(`pm2 ${args.join(' ')}`, (err, stdout, stderr) => {
-      if (err) {
-        return reject(new Error(stderr || err.message));
-      }
-      resolve(stdout || stderr);
-    });
-  });
+  return execFileAsync('pm2', args).then(({ stdout, stderr }) => stdout || stderr);
 }
 
 function startProcess({ name, script, cwd, args = [], envVars = {}, instances = 1, watch = false }) {
@@ -79,9 +70,13 @@ function startExistingProcess(name) {
   return runPm2Command(['start', name]);
 }
 
-function getLogs(name, lines = 100) {
-  const output = execSync(`pm2 logs ${name} --lines ${lines} --raw`, { encoding: 'utf8' });
-  return output;
+async function getLogs(name, lines = 100) {
+  try {
+    const { stdout } = await execFileAsync('pm2', ['logs', name, '--lines', String(lines), '--raw', '--nostream']);
+    return stdout;
+  } catch (err) {
+    throw new Error(err.message || 'Failed to get logs');
+  }
 }
 
 function streamLogsSSE({ name, lines = 100, res }) {

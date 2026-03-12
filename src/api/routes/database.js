@@ -1,7 +1,9 @@
 const express = require('express');
 const authMiddleware = require('../middleware/auth');
-const { exec, execSync } = require('child_process');
+const { execFile } = require('child_process');
+const util = require('util');
 
+const execFileAsync = util.promisify(execFile);
 const router = express.Router();
 
 router.use(authMiddleware);
@@ -13,11 +15,13 @@ function sanitizeName(name) {
   return name;
 }
 
-function runCmd(cmd) {
-  return execSync(cmd, { encoding: 'utf8' });
+// Helper to run safely without shell evaluation
+async function runCmdSafe(cmd, args) {
+  const { stdout } = await execFileAsync(cmd, args);
+  return stdout;
 }
 
-router.get('/status', (req, res) => {
+router.get('/status', async (req, res) => {
   const result = {
     postgres: { running: false, version: null },
     mysql: { running: false, version: null },
@@ -25,37 +29,49 @@ router.get('/status', (req, res) => {
   };
 
   try {
-    const status = runCmd('systemctl is-active postgresql || echo inactive').trim();
-    result.postgres.running = status === 'active';
-    if (result.postgres.running) {
-      const v = runCmd('psql --version').trim();
-      result.postgres.version = v;
-    }
-  } catch {}
+    const stdout = await runCmdSafe('systemctl', ['is-active', 'postgresql']);
+    result.postgres.running = stdout.trim() === 'active';
+  } catch {
+    result.postgres.running = false;
+  }
+  if (result.postgres.running) {
+    try {
+      const v = await runCmdSafe('psql', ['--version']);
+      result.postgres.version = v.trim();
+    } catch {}
+  }
 
   try {
-    const status = runCmd('systemctl is-active mysql || echo inactive').trim();
-    result.mysql.running = status === 'active';
-    if (result.mysql.running) {
-      const v = runCmd('mysql --version').trim();
-      result.mysql.version = v;
-    }
-  } catch {}
+    const stdout = await runCmdSafe('systemctl', ['is-active', 'mysql']);
+    result.mysql.running = stdout.trim() === 'active';
+  } catch {
+    result.mysql.running = false;
+  }
+  if (result.mysql.running) {
+    try {
+      const v = await runCmdSafe('mysql', ['--version']);
+      result.mysql.version = v.trim();
+    } catch {}
+  }
 
   try {
-    const status = runCmd('systemctl is-active redis-server || echo inactive').trim();
-    result.redis.running = status === 'active';
-    if (result.redis.running) {
-      const v = runCmd('redis-server --version').trim();
-      result.redis.version = v;
-    }
-  } catch {}
+    const stdout = await runCmdSafe('systemctl', ['is-active', 'redis-server']);
+    result.redis.running = stdout.trim() === 'active';
+  } catch {
+    result.redis.running = false;
+  }
+  if (result.redis.running) {
+    try {
+      const v = await runCmdSafe('redis-server', ['--version']);
+      result.redis.version = v.trim();
+    } catch {}
+  }
 
   res.json(result);
 });
 
 // PostgreSQL
-router.post('/postgres/create', (req, res) => {
+router.post('/postgres/create', async (req, res) => {
   try {
     const { dbName, username, password } = req.body || {};
     if (!dbName || !username || !password) {
@@ -64,8 +80,21 @@ router.post('/postgres/create', (req, res) => {
     const db = sanitizeName(dbName);
     const user = sanitizeName(username);
 
-    runCmd(`sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${user}'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER \\"${user}\\" WITH PASSWORD '${password}'"`);
-    runCmd(`sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${db}'" | grep -q 1 || sudo -u postgres createdb -O "${user}" "${db}"`);
+    // Check if role exists
+    try {
+      await runCmdSafe('sudo', ['-u', 'postgres', 'psql', '-tc', `SELECT 1 FROM pg_roles WHERE rolname='${user}'`]);
+    } catch {
+      // Create user if not exists
+      await runCmdSafe('sudo', ['-u', 'postgres', 'psql', '-c', `CREATE USER "${user}" WITH PASSWORD '${password}'`]);
+    }
+
+    // Check if database exists
+    try {
+      await runCmdSafe('sudo', ['-u', 'postgres', 'psql', '-tc', `SELECT 1 FROM pg_database WHERE datname='${db}'`]);
+    } catch {
+      // Create db if not exists
+      await runCmdSafe('sudo', ['-u', 'postgres', 'createdb', '-O', user, db]);
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -74,14 +103,14 @@ router.post('/postgres/create', (req, res) => {
   }
 });
 
-router.post('/postgres/drop', (req, res) => {
+router.post('/postgres/drop', async (req, res) => {
   try {
     const { dbName } = req.body || {};
     if (!dbName) {
       return res.status(400).json({ error: 'dbName is required' });
     }
     const db = sanitizeName(dbName);
-    runCmd(`sudo -u postgres dropdb "${db}"`);
+    await runCmdSafe('sudo', ['-u', 'postgres', 'dropdb', db]);
     res.json({ success: true });
   } catch (err) {
     console.error('[ServerDock] Failed to drop postgres db:', err);
@@ -89,11 +118,12 @@ router.post('/postgres/drop', (req, res) => {
   }
 });
 
-router.get('/postgres/list', (req, res) => {
+router.get('/postgres/list', async (req, res) => {
   try {
-    const dbsRaw = runCmd(
-      `sudo -u postgres psql -Atc "SELECT datname, pg_catalog.pg_get_userbyid(datdba) FROM pg_database WHERE datistemplate = false;"`
-    );
+    const dbsRaw = await runCmdSafe('sudo', [
+      '-u', 'postgres', 'psql', '-Atc',
+      "SELECT datname, pg_catalog.pg_get_userbyid(datdba) FROM pg_database WHERE datistemplate = false;"
+    ]);
     const dbs = dbsRaw
       .trim()
       .split('\n')
@@ -103,9 +133,10 @@ router.get('/postgres/list', (req, res) => {
         return { name, owner };
       });
 
-    const usersRaw = runCmd(
-      `sudo -u postgres psql -Atc "SELECT rolname FROM pg_roles WHERE rolcanlogin = true;"`
-    );
+    const usersRaw = await runCmdSafe('sudo', [
+      '-u', 'postgres', 'psql', '-Atc',
+      "SELECT rolname FROM pg_roles WHERE rolcanlogin = true;"
+    ]);
     const users = usersRaw
       .trim()
       .split('\n')
@@ -120,7 +151,7 @@ router.get('/postgres/list', (req, res) => {
 });
 
 // MySQL
-router.post('/mysql/create', (req, res) => {
+router.post('/mysql/create', async (req, res) => {
   try {
     const { dbName, username, password } = req.body || {};
     if (!dbName || !username || !password) {
@@ -130,12 +161,12 @@ router.post('/mysql/create', (req, res) => {
     const user = sanitizeName(username);
 
     const sql = `
-CREATE DATABASE IF NOT EXISTS \\\`${db}\\\`;
-CREATE USER IF NOT EXISTS '${user}'@'%' IDENTIFIED BY '${password}';
-GRANT ALL PRIVILEGES ON \\\`${db}\\\`.* TO '${user}'@'%';
+CREATE DATABASE IF NOT EXISTS \`${db}\`;
+CREATE USER IF NOT EXISTS '${user}'@'%' IDENTIFIED BY '${password.replace(/'/g, "''")}';
+GRANT ALL PRIVILEGES ON \`${db}\`.* TO '${user}'@'%';
 FLUSH PRIVILEGES;
 `;
-    runCmd(`mysql -uroot -e "${sql.replace(/\n/g, ' ')}"`);
+    await runCmdSafe('mysql', ['-uroot', '-e', sql.trim()]);
     res.json({ success: true });
   } catch (err) {
     console.error('[ServerDock] Failed to create mysql db:', err);
@@ -143,11 +174,12 @@ FLUSH PRIVILEGES;
   }
 });
 
-router.get('/mysql/list', (req, res) => {
+router.get('/mysql/list', async (req, res) => {
   try {
-    const dbsRaw = runCmd(
-      `mysql -uroot -N -e "SHOW DATABASES WHERE \\\`Database\\\` NOT IN ('mysql','information_schema','performance_schema','sys');"`
-    );
+    const dbsRaw = await runCmdSafe('mysql', [
+      '-uroot', '-N', '-e',
+      "SHOW DATABASES WHERE `Database` NOT IN ('mysql','information_schema','performance_schema','sys');"
+    ]);
     const dbs = dbsRaw
       .trim()
       .split('\n')
@@ -161,9 +193,9 @@ router.get('/mysql/list', (req, res) => {
 });
 
 // Redis
-router.post('/redis/flush', (req, res) => {
+router.post('/redis/flush', async (req, res) => {
   try {
-    runCmd('redis-cli FLUSHALL');
+    await runCmdSafe('redis-cli', ['FLUSHALL']);
     res.json({ success: true });
   } catch (err) {
     console.error('[ServerDock] Failed to flush redis:', err);
